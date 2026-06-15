@@ -1,0 +1,50 @@
+name: Build Pixel 7a LineageOS Docker Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential libelf-dev clang lld llvm git gnupg flex libssl-dev libncurses-dev wget curl
+
+      - name: Set up Toolchain
+        run: |
+          # Install Repo tool
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Sync LineageOS Kernel Source
+        run: |
+          git config --global user.name "Builder"
+          git config --global user.email "builder@docker.os"
+          
+          mkdir android-kernel && cd android-kernel
+          # Sync LineageOS 21.0 kernel source for Pixel 7a (Tensor G2 - kernel 5.10)
+          repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --depth=1
+          repo sync -j$(nproc) kernel/google/gs201
+
+      - name: Apply Docker Configuration Fragment
+        run: |
+          cat ../docker_kernel_config.fragment >> android-kernel/kernel/google/gs201/arch/arm64/configs/gki_defconfig
+
+      - name: Compile Kernel
+        run: |
+          cd android-kernel
+          # Build LineageOS kernel
+          LTO=thin ./build/build.sh
+
+      - name: Upload Kernel Boot Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-docker-lineage-lynx
+          path: android-kernel/out/android-gs-pixel-5-10/dist/boot.img
