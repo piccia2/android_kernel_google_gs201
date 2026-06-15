@@ -15,36 +15,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential libelf-dev clang lld llvm git gnupg flex libssl-dev libncurses-dev wget curl
 
-      - name: Set up Toolchain
+      - name: Download Clang Toolchain (AOSP Clang)
         run: |
-          # Install Repo tool
-          mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-          echo "$HOME/bin" >> $GITHUB_PATH
+          mkdir -p toolchain
+          cd toolchain
+          # Download Android Clang toolchain used for building kernel 5.10
+          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz
+          tar -xzf clang-r487747c.tar.gz
+          echo "$(pwd)/bin" >> $GITHUB_PATH
 
-      - name: Sync LineageOS Kernel Source
+      - name: Clone LineageOS gs201 Kernel Source
         run: |
-          git config --global user.name "Builder"
-          git config --global user.email "builder@docker.os"
-          
-          mkdir android-kernel && cd android-kernel
-          # Sync LineageOS 21.0 kernel source for Pixel 7a (Tensor G2 - kernel 5.10)
-          repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --depth=1
-          repo sync -j$(nproc) kernel/google/gs201
+          # Clone the specific repository for Pixel 7a kernel (gs201)
+          git clone --depth=1 https://github.com/LineageOS/android_kernel_google_gs201.git -b lineage-21 kernel-source
 
       - name: Apply Docker Configuration Fragment
         run: |
-          cat ../docker_kernel_config.fragment >> android-kernel/kernel/google/gs201/arch/arm64/configs/gki_defconfig
+          # Apply Docker configs directly to the default gki defconfig
+          cat docker_kernel_config.fragment >> kernel-source/arch/arm64/configs/gki_defconfig
 
       - name: Compile Kernel
         run: |
-          cd android-kernel
-          # Build LineageOS kernel
-          LTO=thin ./build/build.sh
+          cd kernel-source
+          # Set up build variables
+          export PATH=$PATH
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang LD=ld.lld gki_defconfig
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang LD=ld.lld
 
-      - name: Upload Kernel Boot Image
+      - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
-          name: boot-docker-lineage-lynx
-          path: android-kernel/out/android-gs-pixel-5-10/dist/boot.img
+          name: Image-docker
+          path: kernel-source/arch/arm64/boot/Image
